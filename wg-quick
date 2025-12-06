@@ -1,0 +1,90 @@
+#!/bin/sh
+
+ACTION="$1"
+WG_IF="$2"
+
+if [ -z "$WG_IF" ] || [ -z "$ACTION" ]; then
+    echo "Usage: $0 {up|down} <interface>"
+    exit 1
+fi
+
+WG_HOME="/data/wireguard"
+WG_CONF="$WG_HOME/conf/${WG_IF}.conf"
+WG_BIN="$WG_HOME/bin/wireguard-go"
+WG_CMD="$WG_HOME/bin/wg"
+export WG_QUICK_USERSPACE_IMPLEMENTATION=wireguard-go
+
+kill_wg() {
+    for pid in $(ps | grep "[w]ireguard-go $WG_IF" | awk '{print $1}'); do
+        kill "$pid" 2>/dev/null
+    done
+}
+
+extract_addrs() {
+    awk -F= '/^Address[[:space:]]*=/ {gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2}' "$WG_CONF" | tr ',' ' '
+}
+
+extract_mtu() {
+    awk -F= '/^MTU[[:space:]]*=/ {gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2}' "$WG_CONF"
+}
+
+extract_routes() {
+    awk -F= '/^AllowedIPs[[:space:]]*=/ {gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2}' "$WG_CONF" | tr ',' ' '
+}
+
+generate_tmp_conf() {
+    TMP=$(mktemp)
+    awk '{
+        if ($0 ~ /^Address[[:space:]]*=/) next
+        if ($0 ~ /^MTU[[:space:]]*=/) next
+        if ($0 ~ /^DNS[[:space:]]*=/) next
+        print
+    }' "$WG_CONF" > "$TMP"
+    echo "$TMP"
+}
+
+wg_quick_up() {
+    MTU=$(extract_mtu)
+    ADDR_LIST=$(extract_addrs)
+    ROUTE_LIST=$(extract_routes)
+    kill_wg
+    ip tuntap add dev "$WG_IF" mode tun 2>/dev/null || echo "$WG_IF exists"
+    ip link set "$WG_IF" up
+    [ -n "$MTU" ] && ip link set mtu "$MTU" dev "$WG_IF"
+    "$WG_BIN" "$WG_IF" &
+    sleep 1
+    TMP_CONF=$(generate_tmp_conf)
+    "$WG_CMD" setconf "$WG_IF" "$TMP_CONF"
+    rm -f "$TMP_CONF"
+    for ipaddr in $ADDR_LIST; do ip addr add "$ipaddr" dev "$WG_IF" 2>/dev/null; done
+    for r in $ROUTE_LIST; do
+        case $r in
+            *:* ) ip -6 route add "$r" dev "$WG_IF" 2>/dev/null ;;
+            * )   ip route add "$r" dev "$WG_IF" 2>/dev/null ;;
+        esac
+    done
+    echo "$WG_IF up"
+    "$WG_CMD" show "$WG_IF"
+}
+
+wg_quick_down() {
+    kill_wg
+    ADDR_LIST=$(extract_addrs)
+    ROUTE_LIST=$(extract_routes)
+    for ipaddr in $ADDR_LIST; do ip addr del "$ipaddr" dev "$WG_IF" 2>/dev/null; done
+    for r in $ROUTE_LIST; do
+        case $r in
+            *:* ) ip -6 route del "$r" dev "$WG_IF" 2>/dev/null ;;
+            * )   ip route del "$r" dev "$WG_IF" 2>/dev/null ;;
+        esac
+    done
+    ip link set "$WG_IF" down 2>/dev/null
+    ip tuntap del dev "$WG_IF" mode tun 2>/dev/null
+    echo "$WG_IF down"
+}
+
+case "$ACTION" in
+    up) wg_quick_up ;;
+    down) wg_quick_down ;;
+    *) echo "Usage: $0 {up|down} <interface>" ; exit 1 ;;
+esac
