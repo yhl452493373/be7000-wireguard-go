@@ -48,8 +48,9 @@ uci set firewall.wg0.type='script'
 uci set firewall.wg0.path='/data/wireguard/bin/wg-quick up wg0'
 uci set firewall.wg0.enabled='1'
 uci commit firewall
+/etc/init.d/firewall restart
 ```
-然后执行`/etc/init.d/firewall restart`就会看到wireguard日志，重启后会自动开启wireguard
+之后会看到wireguard日志，重启后会自动开启wireguard
 
 ---
 ## 自行编译 wg 和 wireguard-go
