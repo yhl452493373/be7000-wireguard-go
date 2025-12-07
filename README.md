@@ -28,6 +28,17 @@ chmod a+x *
 ./wg-quick up wg0
 ```
 
+## 放行接口转发
+
+这一步不做的话，异地访问小米路由器 IP 没问题，但是无法访问到其下的其他设备
+
+登录小米路由器，执行
+```bash
+uci set firewall.@defaults[0].forward='ACCEPT'
+uci commit firewall
+/etc/init.d/firewall restart
+```
+
 ### 使 wireguard 开机自启
 
 登录小米路由，执行下面代码
