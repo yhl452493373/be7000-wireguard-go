@@ -14,6 +14,15 @@ WG_BIN="$WG_HOME/bin/wireguard-go"
 WG_CMD="$WG_HOME/bin/wg"
 export WG_QUICK_USERSPACE_IMPLEMENTATION=wireguard-go
 
+WAN_IF="eth0"
+LAN_IF="br-lan"
+
+# ==================================
+# WAN bypass: peer IPs that should go through WAN directly instead of tunnel
+# Example: 10.10.10.2/32
+# ==================================
+WAN_BYPASS_IPS=""
+
 kill_wg() {
     for pid in $(ps | grep "[w]ireguard-go $WG_IF" | awk '{print $1}'); do
         kill "$pid" 2>/dev/null
@@ -43,6 +52,27 @@ generate_tmp_conf() {
     echo "$TMP"
 }
 
+manage_wan_bypass() {                     
+    local ACT="$1"                                                                                       
+    local WAN_GW                    
+    WAN_GW=$(ip route show default | awk '{print $3}' | head -n1)                                           
+    if [ -z "$WAN_GW" ]; then                 
+        echo "[wan-bypass] Warning: cannot detect default gateway, skipping"            
+        return                            
+    fi                                                                                                   
+    for ipcidr in $WAN_BYPASS_IPS; do
+        if [ "$ACT" = "add" ]; then                                                                         
+            ip route add "$ipcidr" via "$WAN_GW" 2>/dev/null && \
+                echo "[wan-bypass] added: $ipcidr via $WAN_GW" || \                     
+                echo "[wan-bypass] already exists or failed: $ipcidr via $WAN_GW"
+        elif [ "$ACT" = "del" ]; then                                                                    
+            ip route del "$ipcidr" via "$WAN_GW" 2>/dev/null && \
+                echo "[wan-bypass] removed: $ipcidr via $WAN_GW" || \                                       
+                echo "[wan-bypass] not found or failed: $ipcidr" 
+        fi                                                                              
+    done                                                                         
+}
+
 wg_quick_up() {
     MTU=$(extract_mtu)
     ADDR_LIST=$(extract_addrs)
@@ -63,16 +93,24 @@ wg_quick_up() {
             * )   ip route add "$r" dev "$WG_IF" 2>/dev/null ;;
         esac
     done
-    iptables -t nat -A POSTROUTING -o "$WG_IF" -j MASQUERADE
+    iptables -t nat -A POSTROUTING -o "$WG_IF" -j MASQUERADE            
+    iptables -I FORWARD -i "$WAN_IF" -o "$LAN_IF" -j ACCEPT                                              
+    iptables -I FORWARD -i "$LAN_IF" -o "$WAN_IF" -j ACCEPT       
+    iptables -I INPUT -i "$WAN_IF" -j ACCEPT                                                                
+    manage_wan_bypass add
     echo "$WG_IF up"
     "$WG_CMD" show "$WG_IF"
 }
 
 wg_quick_down() {
+   manage_wan_bypass del
     kill_wg
     ADDR_LIST=$(extract_addrs)
     ROUTE_LIST=$(extract_routes)
     iptables -t nat -D POSTROUTING -o "$WG_IF" -j MASQUERADE
+    iptables -D FORWARD -i "$WAN_IF" -o "$LAN_IF" -j ACCEPT 2>/dev/null
+    iptables -D FORWARD -i "$LAN_IF" -o "$WAN_IF" -j ACCEPT 2>/dev/null                                     
+    iptables -D INPUT -i "$WAN_IF" -j ACCEPT 2>/dev/null  
     for ipaddr in $ADDR_LIST; do ip addr del "$ipaddr" dev "$WG_IF" 2>/dev/null; done
     for r in $ROUTE_LIST; do
         case $r in
