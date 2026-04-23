@@ -2,7 +2,10 @@
 
 ## 路由器环境准备
 + 仓库中的[wg-quick](wg-quick)是sh通用脚本，用于调用 wg 和 wireguard-go** 
-+ 仓库中的 [wg](wg)、[wireguard-go](wireguard-go)是适用于小米路由器BE7000的，如果你不是这个型号，可能需要根据自己的架构自行编译，方法见后面**
++ 仓库中的[wg](wg)、[wireguard-go](wireguard-go)是适用于小米路由器BE7000的，如果你不是这个型号，可能需要根据自己的架构自行编译，方法见后面**
++ 仓库中的[wan-bypass.sh](wan-bypass.sh)用于wireguard的某些ip直达网关
+  + 如一级、二级路由都有wireguard，小米路由作为二级路由，访问一级路由的wireguard ip时，不通过服务端，直接访问
+  + 这个脚本需要每次路由器重启后手动执行 
 + 参考 https://www.gaicas.com/xiaomi-be7000.html 开启SSH并`登录到SSH`
 + 创建 /data/wireguard/bin 和 /data/wireguard/conf 目录
   + `mkdir -p /data/wireguard/bin`
