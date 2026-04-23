@@ -63,6 +63,7 @@ wg_quick_up() {
             * )   ip route add "$r" dev "$WG_IF" 2>/dev/null ;;
         esac
     done
+    iptables -t nat -A POSTROUTING -o "$WG_IF" -j MASQUERADE
     echo "$WG_IF up"
     "$WG_CMD" show "$WG_IF"
 }
@@ -71,6 +72,7 @@ wg_quick_down() {
     kill_wg
     ADDR_LIST=$(extract_addrs)
     ROUTE_LIST=$(extract_routes)
+    iptables -t nat -D POSTROUTING -o "$WG_IF" -j MASQUERADE
     for ipaddr in $ADDR_LIST; do ip addr del "$ipaddr" dev "$WG_IF" 2>/dev/null; done
     for r in $ROUTE_LIST; do
         case $r in
