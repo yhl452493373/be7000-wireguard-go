@@ -80,30 +80,6 @@ manage_iptables() {
     fi
 }
 
-# ==================================
-# WAN bypass: peer IPs that go through WAN directly instead of tunnel
-# ==================================
-manage_wan_bypass() {                     
-    local ACT="$1"                                                                                       
-    local WAN_GW                    
-    WAN_GW=$(ip route show default | awk '{print $3}' | head -n1)                                           
-    if [ -z "$WAN_GW" ]; then                 
-        echo "[wan-bypass] Warning: cannot detect default gateway, skipping"            
-        return                            
-    fi                                                                                                   
-    for ipcidr in $WAN_BYPASS_IPS; do
-        if [ "$ACT" = "add" ]; then                                                                         
-            ip route add "$ipcidr" via "$WAN_GW" 2>/dev/null && \
-                echo "[wan-bypass] added: $ipcidr via $WAN_GW" || \                     
-                echo "[wan-bypass] already exists or failed: $ipcidr via $WAN_GW"
-        elif [ "$ACT" = "del" ]; then                                                                    
-            ip route del "$ipcidr" via "$WAN_GW" 2>/dev/null && \
-                echo "[wan-bypass] removed: $ipcidr via $WAN_GW" || \                                       
-                echo "[wan-bypass] not found or failed: $ipcidr" 
-        fi                                                                              
-    done                                                                         
-}
-
 wg_quick_up() {
     MTU=$(extract_mtu)
     ADDR_LIST=$(extract_addrs)
@@ -125,13 +101,11 @@ wg_quick_up() {
         esac
     done
     manage_iptables add
-    manage_wan_bypass add
     echo "$WG_IF up"
     "$WG_CMD" show "$WG_IF"
 }
 
 wg_quick_down() {
-    manage_wan_bypass del
     manage_iptables del
     kill_wg
     ADDR_LIST=$(extract_addrs)
