@@ -14,7 +14,9 @@ WG_BIN="$WG_HOME/bin/wireguard-go"
 WG_CMD="$WG_HOME/bin/wg"
 export WG_QUICK_USERSPACE_IMPLEMENTATION=wireguard-go
 
+# WAN interface connected to upstream router
 WAN_IF="eth0"
+# LAN bridge interface for local network
 LAN_IF="br-lan"
 
 # ==================================
@@ -52,6 +54,35 @@ generate_tmp_conf() {
     echo "$TMP"
 }
 
+# ==================================
+# Manage iptables rules
+# ==================================
+manage_iptables() {
+    local ACT="$1"
+    if [ "$ACT" = "add" ]; then
+        iptables -t nat -A POSTROUTING -o "$WG_IF" -j MASQUERADE && \
+            echo "[iptables] added: NAT MASQUERADE on $WG_IF"
+        iptables -I FORWARD -i "$WAN_IF" -o "$LAN_IF" -j ACCEPT && \
+            echo "[iptables] added: FORWARD $WAN_IF -> $LAN_IF ACCEPT"
+        iptables -I FORWARD -i "$LAN_IF" -o "$WAN_IF" -j ACCEPT && \
+            echo "[iptables] added: FORWARD $LAN_IF -> $WAN_IF ACCEPT"
+        iptables -I INPUT -i "$WAN_IF" -j ACCEPT && \
+            echo "[iptables] added: INPUT $WAN_IF ACCEPT"
+    elif [ "$ACT" = "del" ]; then
+        iptables -t nat -D POSTROUTING -o "$WG_IF" -j MASQUERADE 2>/dev/null && \
+            echo "[iptables] removed: NAT MASQUERADE on $WG_IF"
+        iptables -D FORWARD -i "$WAN_IF" -o "$LAN_IF" -j ACCEPT 2>/dev/null && \
+            echo "[iptables] removed: FORWARD $WAN_IF -> $LAN_IF ACCEPT"
+        iptables -D FORWARD -i "$LAN_IF" -o "$WAN_IF" -j ACCEPT 2>/dev/null && \
+            echo "[iptables] removed: FORWARD $LAN_IF -> $WAN_IF ACCEPT"
+        iptables -D INPUT -i "$WAN_IF" -j ACCEPT 2>/dev/null && \
+            echo "[iptables] removed: INPUT $WAN_IF ACCEPT"
+    fi
+}
+
+# ==================================
+# WAN bypass: peer IPs that go through WAN directly instead of tunnel
+# ==================================
 manage_wan_bypass() {                     
     local ACT="$1"                                                                                       
     local WAN_GW                    
@@ -93,24 +124,18 @@ wg_quick_up() {
             * )   ip route add "$r" dev "$WG_IF" 2>/dev/null ;;
         esac
     done
-    iptables -t nat -A POSTROUTING -o "$WG_IF" -j MASQUERADE            
-    iptables -I FORWARD -i "$WAN_IF" -o "$LAN_IF" -j ACCEPT                                              
-    iptables -I FORWARD -i "$LAN_IF" -o "$WAN_IF" -j ACCEPT       
-    iptables -I INPUT -i "$WAN_IF" -j ACCEPT                                                                
+    manage_iptables add
     manage_wan_bypass add
     echo "$WG_IF up"
     "$WG_CMD" show "$WG_IF"
 }
 
 wg_quick_down() {
-   manage_wan_bypass del
+    manage_wan_bypass del
+    manage_iptables del
     kill_wg
     ADDR_LIST=$(extract_addrs)
     ROUTE_LIST=$(extract_routes)
-    iptables -t nat -D POSTROUTING -o "$WG_IF" -j MASQUERADE
-    iptables -D FORWARD -i "$WAN_IF" -o "$LAN_IF" -j ACCEPT 2>/dev/null
-    iptables -D FORWARD -i "$LAN_IF" -o "$WAN_IF" -j ACCEPT 2>/dev/null                                     
-    iptables -D INPUT -i "$WAN_IF" -j ACCEPT 2>/dev/null  
     for ipaddr in $ADDR_LIST; do ip addr del "$ipaddr" dev "$WG_IF" 2>/dev/null; done
     for r in $ROUTE_LIST; do
         case $r in
