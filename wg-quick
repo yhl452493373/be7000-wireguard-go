@@ -19,12 +19,6 @@ WAN_IF="eth0"
 # LAN bridge interface for local network
 LAN_IF="br-lan"
 
-# ==================================
-# WAN bypass: peer IPs that should go through WAN directly instead of tunnel
-# Example: 10.10.10.2/32
-# ==================================
-WAN_BYPASS_IPS=""
-
 kill_wg() {
     for pid in $(ps | grep "[w]ireguard-go $WG_IF" | awk '{print $1}'); do
         kill "$pid" 2>/dev/null
